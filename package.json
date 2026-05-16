@@ -1,10 +1,10 @@
 {
-  "name": "copilot-plugin",
+  "name": "copilot-ship",
   "version": "0.1.0",
-  "description": "Install GitHub Copilot plugin artifacts into canonical Copilot directories.",
+  "description": "Ship GitHub Copilot plugin artifacts into canonical Copilot directories.",
   "type": "module",
   "bin": {
-    "copilot-plugin": "dist/index.js"
+    "copilot-ship": "dist/index.js"
   },
   "main": "./dist/index.js",
   "files": [

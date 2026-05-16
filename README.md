@@ -1,6 +1,6 @@
-# copilot-plugin
+# copilot-ship
 
-Install GitHub Copilot plugin artifacts into canonical Copilot directories.
+Ship GitHub Copilot plugin artifacts into canonical Copilot directories.
 
 ## npm vs npx (quick explanation)
 
@@ -43,19 +43,26 @@ node dist/index.js add https://github.com/github/copilot-plugins --plugin spark 
 node dist/index.js list
 ```
 
-This installs artifacts into `./.github/` by default.
+Or using the global command (after `npm link`):
+
+```bash
+copilot-ship add https://github.com/github/copilot-plugins --plugin spark -y
+copilot-ship list
+```
+
+This ships artifacts into `./.github/` by default.
 
 ## Optional: test as if globally installed
 
-If you want to invoke `copilot-plugin` directly (without `node dist/index.js`):
+If you want to invoke `copilot-ship` directly (without `node dist/index.js`):
 
 ```bash
 npm link
-copilot-plugin --help
+copilot-ship --help
 ```
 
 When done:
 
 ```bash
-npm unlink -g copilot-plugin
+npm unlink -g copilot-ship
 ```
