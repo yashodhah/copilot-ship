@@ -68,7 +68,9 @@ export async function applyUpdate(
     allowOverwrite: true,
   };
 
-  const result = await installFromMarketplace(source, updateFlags, async (candidates) => candidates);
+  const result = await installFromMarketplace(source, updateFlags, async (candidates) =>
+    candidates.filter((c) => c.plugin.name === pluginName),
+  );
 
   await addPluginsToLock(
     result.installedPlugins.map((plan) => {
