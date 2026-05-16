@@ -1,0 +1,36 @@
+{
+  "name": "copilot-plugin",
+  "version": "0.1.0",
+  "description": "Install GitHub Copilot plugin artifacts into canonical Copilot directories.",
+  "type": "module",
+  "bin": {
+    "copilot-plugin": "dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run typecheck"
+  },
+  "keywords": [
+    "copilot",
+    "github-copilot",
+    "cli",
+    "plugin"
+  ],
+  "author": "",
+  "license": "ISC",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.8.0",
+    "typescript": "^6.0.3"
+  }
+}
