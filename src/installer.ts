@@ -23,12 +23,14 @@ export interface CliFlags {
   installAll: boolean;
   yes: boolean;
   scope: InstallScope;
+  allowOverwrite?: boolean;
 }
 
 interface MarketplacePlugin {
   name: string;
   source: string | Record<string, unknown>;
   description?: string;
+  version?: string;
 }
 
 interface MarketplaceManifest {
@@ -187,7 +189,7 @@ export async function installFromMarketplace(
       throw new Error("Nothing to install: the selected plugins do not contain supported Copilot artifacts.");
     }
 
-    await ensureNoConflicts(installablePlans);
+    await ensureNoConflicts(installablePlans, flags.allowOverwrite ?? false);
     await copyInstallPlans(installablePlans);
 
     return {
@@ -325,7 +327,7 @@ async function discoverArtifacts(pluginRoot: string, targetRoot: string): Promis
   return entries.sort((left, right) => left.targetRelativePath.localeCompare(right.targetRelativePath));
 }
 
-async function ensureNoConflicts(plans: PluginInstallPlan[]): Promise<void> {
+async function ensureNoConflicts(plans: PluginInstallPlan[], allowOverwrite = false): Promise<void> {
   const seenTargets = new Map<string, string>();
   const fileConflicts: string[] = [];
 
@@ -340,7 +342,7 @@ async function ensureNoConflicts(plans: PluginInstallPlan[]): Promise<void> {
 
       seenTargets.set(entry.targetPath, plan.plugin.name);
 
-      if (await pathExists(entry.targetPath)) {
+      if (!allowOverwrite && (await pathExists(entry.targetPath))) {
         fileConflicts.push(entry.targetPath);
       }
     }
