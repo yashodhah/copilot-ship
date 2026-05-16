@@ -18,6 +18,7 @@ import {
   installFromMarketplace,
   listInstalledArtifacts,
 } from "./installer.js";
+import { addPluginsToLock } from "./lock.js";
 
 interface ParsedArgs {
   command: "add" | "list" | "help";
@@ -116,6 +117,20 @@ async function runAdd(parsedArgs: ParsedArgs): Promise<void> {
   }
 
   activity.stop(`Installed ${result.installedPlugins.length} plugin(s) into ${result.targetRoot}`);
+
+  await addPluginsToLock(
+    result.installedPlugins.map((plan) => {
+      const entry: { name: string; source: string; pluginVersion?: string } = {
+        name: plan.plugin.name,
+        source: parsedArgs.source!,
+      };
+      if (plan.plugin.version) {
+        entry.pluginVersion = plan.plugin.version;
+      }
+      return entry;
+    }),
+    parsedArgs.flags.scope,
+  );
 
   for (const warning of result.warnings) {
     log.warn(warning);
