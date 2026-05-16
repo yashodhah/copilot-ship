@@ -79,6 +79,72 @@ Scope:
 
 The CLI already reads `.claude-plugin/marketplace.json` for plugin-grouped skills.
 
+## Update Flow — Design Decisions
+
+### Lockfile approach (follows Vercel skills pattern)
+
+Two separate lockfiles, different scopes:
+
+**Project lockfile** (`copilot-plugin-lock.json` at repo root):
+- Committed to git
+- No timestamps (avoids merge conflicts — two branches adding different plugins auto-merge)
+- Keys sorted alphabetically for deterministic diffs
+- `update` = re-fetch marketplace manifest from `source`, version-compare, overwrite files if newer
+
+**Global lockfile** (`~/.copilot/copilot-plugin-lock.json`):
+- Never committed — user-state only
+- Includes `installedAt` / `updatedAt` timestamps
+- Same update flow
+
+### Version-based update detection
+
+`marketplace.json` plugin entries carry a `version` field (already present in `awesome-copilot`). At install time, record installed version in lockfile. At update time, re-fetch manifest, compare `version` strings. If newer → re-clone + overwrite.
+
+Future upgrade path: replace with GitHub tree SHA approach (like Vercel global) so plugin authors don't need to manually bump versions.
+
+### Lockfile schema (Vercel-inspired)
+
+Vercel stores NO per-skill version field and NO installed file list — uses hashes for change detection and derives delete paths from skill name + known dirs.
+
+For `copilot-plugin`, plugins install scattered files across `.github/` (unlike Vercel's per-skill directories). Schema deviation: we add `pluginVersion` for update detection, and `installedFiles` may be needed for future `remove` command since there is no single plugin directory to `rm -rf`.
+
+### Lockfile schema (final — minimal)
+
+```typescript
+// Project: copilot-plugin-lock.json (committed to git, no timestamps)
+interface PluginLockEntry {
+  source: string;         // "github/awesome-copilot", "./local-path"
+  pluginVersion?: string; // from marketplace.json plugin entry — optional, may be absent
+}
+interface PluginLockFile {
+  version: number;        // schema version, currently 1
+  plugins: Record<string, PluginLockEntry>; // keyed by plugin name, sorted alphabetically
+}
+
+// Global: ~/.copilot/copilot-plugin-lock.json (never committed)
+// Same as above + installedAt/updatedAt ISO timestamps
+```
+
+`add` always writes a lockfile entry, even when `pluginVersion` is absent.
+
+### Missing version field behavior (follows Vercel pattern)
+
+`update` skips plugins with no `pluginVersion` in lockfile, prints:
+```
+  • spark  (no version tracked)
+    To update: copilot-plugin add <source> --plugin spark -y
+```
+
+### Key code change required
+
+`installer.ts:328` `ensureNoConflicts` throws if any target file already exists. `update` command needs an `allowOverwrite: boolean` flag on `installFromMarketplace` — when `true`, skip the file-exists check (still throw on cross-plugin conflicts within same run).
+
+### Command shape
+
+Mirrors existing `-g` pattern:
+- `copilot-plugin update` → project scope (reads `copilot-plugin-lock.json`)
+- `copilot-plugin update -g` → global scope (reads `~/.copilot/copilot-plugin-lock.json`)
+
 ## IntelliJ / JetBrains Gap
 
 Source: https://github.com/microsoft/copilot-intellij-feedback/issues/1539

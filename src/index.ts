@@ -8,6 +8,7 @@ import {
   log,
   multiselect,
   outro,
+  select,
   spinner,
 } from "@clack/prompts";
 
@@ -53,6 +54,23 @@ async function main(): Promise<void> {
 async function runAdd(parsedArgs: ParsedArgs): Promise<void> {
   if (!parsedArgs.source) {
     throw new Error("The add command requires a source.");
+  }
+
+  if (!parsedArgs.flags.yes && process.stdin.isTTY && process.stdout.isTTY && parsedArgs.flags.scope !== "global") {
+    const scopeChoice = await select({
+      message: "Installation scope",
+      options: [
+        { label: "Project", hint: "Install into .github/ (committed with your repo)", value: "project" as const },
+        { label: "Global", hint: "Install into ~/.copilot/ (available across all projects)", value: "global" as const },
+      ],
+    });
+
+    if (isCancel(scopeChoice)) {
+      cancel("Installation cancelled.");
+      process.exit(0);
+    }
+
+    parsedArgs.flags.scope = scopeChoice;
   }
 
   const activity = spinner();
