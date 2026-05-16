@@ -541,3 +541,5 @@ function wrapExecError(prefix: string, error: unknown): Error {
 
   return new Error(prefix);
 }
+
+export { readMarketplaceManifest as readMarketplaceManifestPublic };
