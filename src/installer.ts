@@ -522,7 +522,7 @@ function isDescendantOf(child: string, parent: string): boolean {
 }
 
 async function createTempDirectory(): Promise<string> {
-  return mkdtemp(path.join(os.tmpdir(), "copilot-plugin-"));
+  return mkdtemp(path.join(os.tmpdir(), "copilot-ship-"));
 }
 
 function wrapExecError(prefix: string, error: unknown): Error {
