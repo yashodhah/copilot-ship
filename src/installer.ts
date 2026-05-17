@@ -9,6 +9,7 @@ import {
   DIRECTORY_TARGETS,
   GLOBAL_INSTALL_ROOT,
   MARKETPLACE_MANIFEST,
+  PLUGIN_JSON_CANDIDATES,
   PROJECT_INSTALL_ROOT,
   type ArtifactKind,
   type DirectoryArtifactKind,
@@ -234,13 +235,18 @@ function getInstallRoot(scope: InstallScope): string {
 }
 
 async function readMarketplaceManifest(marketplaceRoot: string): Promise<MarketplaceManifest> {
+  const pluginJsonPath = await findPluginJson(marketplaceRoot);
+  if (pluginJsonPath) {
+    return readPluginJsonAsManifest(marketplaceRoot, pluginJsonPath);
+  }
+
   const manifestPath = path.join(marketplaceRoot, MARKETPLACE_MANIFEST);
   let raw: string;
 
   try {
     raw = await readFile(manifestPath, "utf8");
   } catch {
-    throw new Error(`MVP1 requires a marketplace manifest at "${manifestPath}".`);
+    throw new Error(`No plugin.json or marketplace manifest found in "${marketplaceRoot}".`);
   }
 
   let parsed: unknown;
@@ -257,6 +263,49 @@ async function readMarketplaceManifest(marketplaceRoot: string): Promise<Marketp
   return parsed;
 }
 
+async function findPluginJson(root: string): Promise<string | null> {
+  for (const candidate of PLUGIN_JSON_CANDIDATES) {
+    const fullPath = path.join(root, candidate);
+    if (await pathExists(fullPath)) {
+      return fullPath;
+    }
+  }
+
+  return null;
+}
+
+async function readPluginJsonAsManifest(marketplaceRoot: string, pluginJsonPath: string): Promise<MarketplaceManifest> {
+  let raw: string;
+  try {
+    raw = await readFile(pluginJsonPath, "utf8");
+  } catch {
+    throw new Error(`Failed to read plugin.json at "${pluginJsonPath}".`);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw wrapExecError(`Failed to parse plugin.json at "${pluginJsonPath}"`, error);
+  }
+
+  if (typeof parsed !== "object" || parsed === null) {
+    throw new Error(`plugin.json at "${pluginJsonPath}" must be a JSON object.`);
+  }
+
+  const record = parsed as Record<string, unknown>;
+  const name = typeof record.name === "string" ? record.name : path.basename(marketplaceRoot);
+  const plugin: MarketplacePlugin = { name, source: "." };
+
+  if (typeof record.description === "string") {
+    plugin.description = record.description;
+  }
+
+  // Source is the marketplace root itself — plugin.json lives in a subdirectory
+  // (.plugin/, .github/plugin/, etc.) but artifacts are at the repo root.
+  return { plugins: [plugin] };
+}
+
 async function findMarketplaceRoot(startingPath: string): Promise<string> {
   let currentPath = path.resolve(startingPath);
   const stats = await readdirOrNull(currentPath);
@@ -266,9 +315,14 @@ async function findMarketplaceRoot(startingPath: string): Promise<string> {
   }
 
   while (true) {
-    const candidate = path.join(currentPath, MARKETPLACE_MANIFEST);
-    if (await pathExists(candidate)) {
+    if (await pathExists(path.join(currentPath, MARKETPLACE_MANIFEST))) {
       return currentPath;
+    }
+
+    for (const candidate of PLUGIN_JSON_CANDIDATES) {
+      if (await pathExists(path.join(currentPath, candidate))) {
+        return currentPath;
+      }
     }
 
     const parent = path.dirname(currentPath);
@@ -279,7 +333,10 @@ async function findMarketplaceRoot(startingPath: string): Promise<string> {
     currentPath = parent;
   }
 
-  throw new Error(`MVP1 requires a marketplace manifest. None was found from "${startingPath}" upward.`);
+  throw new Error(
+    `No plugin.json or marketplace manifest found from "${startingPath}" upward. ` +
+      `Expected one of: ${MARKETPLACE_MANIFEST}, ${PLUGIN_JSON_CANDIDATES.join(", ")}.`,
+  );
 }
 
 function narrowCandidatesByRequestedPath(candidates: PluginCandidate[], requestedPath: string): PluginCandidate[] {
