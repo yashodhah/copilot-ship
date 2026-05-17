@@ -5,7 +5,7 @@ export const MARKETPLACE_MANIFEST = path.join(".claude-plugin", "marketplace.jso
 export const PROJECT_INSTALL_ROOT = ".github";
 export const GLOBAL_INSTALL_ROOT = path.join(os.homedir(), ".copilot");
 
-// VS Code plugin.json discovery order — checked before falling back to marketplace.json walk-up.
+// VS Code plugin.json discovery order — checked at the plugin root (no directory walk-up).
 // Source: https://code.visualstudio.com/docs/copilot/customization/agent-plugins
 export const PLUGIN_JSON_CANDIDATES = [
   path.join(".plugin", "plugin.json"),
