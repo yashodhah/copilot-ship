@@ -18,9 +18,11 @@ import {
   installFromMarketplace,
   listInstalledArtifacts,
 } from "./installer.js";
+import { addPluginsToLock } from "./lock.js";
+import { applyUpdate, buildUpdatePlan } from "./updater.js";
 
 interface ParsedArgs {
-  command: "add" | "list" | "help";
+  command: "add" | "list" | "update" | "help";
   flags: CliFlags;
   source?: string;
 }
@@ -38,6 +40,8 @@ async function main(): Promise<void> {
   try {
     if (parsedArgs.command === "add") {
       await runAdd(parsedArgs);
+    } else if (parsedArgs.command === "update") {
+      await runUpdate(parsedArgs.flags);
     } else {
       await runList(parsedArgs.flags.scope);
     }
@@ -117,6 +121,20 @@ async function runAdd(parsedArgs: ParsedArgs): Promise<void> {
 
   activity.stop(`Installed ${result.installedPlugins.length} plugin(s) into ${result.targetRoot}`);
 
+  await addPluginsToLock(
+    result.installedPlugins.map((plan) => {
+      const entry: { name: string; source: string; pluginVersion?: string } = {
+        name: plan.plugin.name,
+        source: parsedArgs.source!,
+      };
+      if (plan.plugin.version) {
+        entry.pluginVersion = plan.plugin.version;
+      }
+      return entry;
+    }),
+    parsedArgs.flags.scope,
+  );
+
   for (const warning of result.warnings) {
     log.warn(warning);
   }
@@ -145,6 +163,70 @@ async function runList(scope: InstallScope): Promise<void> {
   }
 }
 
+async function runUpdate(flags: CliFlags): Promise<void> {
+  const activity = spinner();
+  activity.start("Reading lockfile and checking versions");
+
+  const { plan, entries } = await buildUpdatePlan(flags.scope);
+
+  activity.stop(
+    plan.toUpdate.length > 0
+      ? `Found ${plan.toUpdate.length} update(s)`
+      : "Checked all plugins",
+  );
+
+  if (plan.skipped.length > 0) {
+    for (const { name, source } of plan.skipped) {
+      log.warn(
+        `${name}: no version tracked — reinstall manually: copilot-plugin add ${source} --plugin ${name} -y`,
+      );
+    }
+  }
+
+  if (plan.toUpdate.length === 0) {
+    log.info("All plugins are up to date.");
+    return;
+  }
+
+  for (const { name, currentVersion, latestVersion } of plan.toUpdate) {
+    log.info(`  ${name}: ${currentVersion} → ${latestVersion}`);
+  }
+
+  if (!flags.yes) {
+    const accepted = await confirm({
+      message: `Update ${plan.toUpdate.length} plugin(s) in ${flags.scope === "global" ? "~/.copilot" : ".github"}?`,
+    });
+
+    if (isCancel(accepted) || !accepted) {
+      cancel("Update cancelled.");
+      process.exit(0);
+    }
+  }
+
+  const failed: string[] = [];
+
+  for (const { name } of plan.toUpdate) {
+    const entry = entries[name];
+    if (!entry) continue;
+
+    activity.start(`Updating ${name}…`);
+    try {
+      await applyUpdate(name, entry.source, flags);
+      activity.stop(`Updated ${name}`);
+      log.success(name);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      activity.error(`Failed to update ${name}`);
+      log.error(message);
+      failed.push(name);
+    }
+  }
+
+  if (failed.length > 0) {
+    throw new Error(`${failed.length} plugin(s) failed to update: ${failed.join(", ")}`);
+  }
+}
+
 function parseArgs(argv: string[]): ParsedArgs {
   const flags: CliFlags = {
     installAll: false,
@@ -163,6 +245,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     switch (argument) {
       case "add":
       case "list":
+      case "update":
       case "help":
         positionals.push(argument);
         break;
@@ -201,11 +284,11 @@ function parseArgs(argv: string[]): ParsedArgs {
     return { command: "help", flags };
   }
 
-  if (command !== "add" && command !== "list" && command !== "help") {
+  if (command !== "add" && command !== "list" && command !== "update" && command !== "help") {
     throw new Error(`Unknown command "${command}".`);
   }
 
-  if (command === "list") {
+  if (command === "list" || command === "update") {
     return { command, flags };
   }
 
@@ -231,6 +314,7 @@ function printUsage(): void {
 Usage:
   copilot-plugin add <source> [--plugin <name> | --all] [-g] [-y]
   copilot-plugin list [-g]
+  copilot-plugin update [-g] [-y]
 
 Sources:
   owner/repo

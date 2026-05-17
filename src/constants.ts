@@ -17,3 +17,4 @@ export type DirectoryArtifactKind = keyof typeof DIRECTORY_TARGETS;
 export type ArtifactKind = DirectoryArtifactKind | "copilot-instructions";
 
 export const COPILOT_INSTRUCTIONS_FILE = "copilot-instructions.md";
+export const LOCK_FILE_NAME = "copilot-plugin-lock.json";
