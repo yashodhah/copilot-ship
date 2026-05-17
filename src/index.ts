@@ -33,7 +33,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  intro("copilot-plugin");
+  intro("copilot-ship");
 
   try {
     if (parsedArgs.command === "add") {
@@ -215,7 +215,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
   const source = positionals[1];
   if (!source) {
-    throw new Error("Usage: copilot-plugin add <source> [--plugin <name> | --all] [-g] [-y]");
+    throw new Error("Usage: copilot-ship add <source> [--plugin <name> | --all] [-g] [-y]");
   }
 
   return {
@@ -226,11 +226,11 @@ function parseArgs(argv: string[]): ParsedArgs {
 }
 
 function printUsage(): void {
-  console.log(`copilot-plugin
+  console.log(`copilot-ship
 
 Usage:
-  copilot-plugin add <source> [--plugin <name> | --all] [-g] [-y]
-  copilot-plugin list [-g]
+  copilot-ship add <source> [--plugin <name> | --all] [-g] [-y]
+  copilot-ship list [-g]
 
 Sources:
   owner/repo
