@@ -1,7 +1,10 @@
 import os from "node:os";
 import path from "node:path";
 
-export const MARKETPLACE_MANIFEST = path.join(".claude-plugin", "marketplace.json");
+export const MARKETPLACE_MANIFEST_CANDIDATES = [
+  path.join(".github", "plugin", "marketplace.json"),
+  path.join(".claude-plugin", "marketplace.json"),
+] as const;
 export const PROJECT_INSTALL_ROOT = ".github";
 export const GLOBAL_INSTALL_ROOT = path.join(os.homedir(), ".copilot");
 

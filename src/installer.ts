@@ -8,7 +8,7 @@ import {
   COPILOT_INSTRUCTIONS_FILE,
   DIRECTORY_TARGETS,
   GLOBAL_INSTALL_ROOT,
-  MARKETPLACE_MANIFEST,
+  MARKETPLACE_MANIFEST_CANDIDATES,
   PLUGIN_JSON_CANDIDATES,
   PROJECT_INSTALL_ROOT,
   type ArtifactKind,
@@ -239,27 +239,33 @@ function getInstallRoot(scope: InstallScope): string {
 }
 
 async function readMarketplaceManifest(marketplaceRoot: string): Promise<MarketplaceManifest> {
-  const manifestPath = path.join(marketplaceRoot, MARKETPLACE_MANIFEST);
-  let raw: string;
+  for (const candidate of MARKETPLACE_MANIFEST_CANDIDATES) {
+    const manifestPath = path.join(marketplaceRoot, candidate);
+    let raw: string;
 
-  try {
-    raw = await readFile(manifestPath, "utf8");
-  } catch {
-    throw new Error(`No marketplace manifest found. Expected "${MARKETPLACE_MANIFEST}" at the repository root.`);
+    try {
+      raw = await readFile(manifestPath, "utf8");
+    } catch {
+      continue;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+
+    if (!isMarketplaceManifest(parsed)) {
+      continue;
+    }
+
+    return parsed;
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    throw wrapExecError(`Failed to parse marketplace manifest at "${manifestPath}"`, error);
-  }
-
-  if (!isMarketplaceManifest(parsed)) {
-    throw new Error(`Marketplace manifest at "${manifestPath}" is missing a valid "plugins" array.`);
-  }
-
-  return parsed;
+  throw new Error(
+    `No marketplace manifest found. Expected one of: ${MARKETPLACE_MANIFEST_CANDIDATES.join(", ")} at the repository root.`,
+  );
 }
 
 async function findPluginJsonAtRoot(pluginRoot: string): Promise<string | null> {
