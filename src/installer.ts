@@ -157,7 +157,12 @@ export async function installFromMarketplace(
       }
 
       const pluginRoot = path.resolve(resolvedSource.root, plugin.source);
-      await assertDirectory(pluginRoot, `Plugin "${plugin.name}" points to missing directory "${plugin.source}".`);
+      const children = await readdirOrNull(pluginRoot);
+      if (children === null) {
+        skippedPlugins.push(plugin.name);
+        warnings.push(`Skipped plugin "${plugin.name}": points to missing directory "${plugin.source}".`);
+        continue;
+      }
       candidates.push({ plugin, pluginRoot });
     }
 
