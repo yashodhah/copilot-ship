@@ -15,6 +15,7 @@ import {
   type AddCommandResult,
   type CliFlags,
   type InstallScope,
+  type SourceKind,
   installFromMarketplace,
   listInstalledArtifacts,
 } from "./installer.js";
@@ -60,19 +61,19 @@ async function runAdd(parsedArgs: ParsedArgs): Promise<void> {
 
   let result: AddCommandResult;
   try {
-    result = await installFromMarketplace(parsedArgs.source, parsedArgs.flags, async (plugins) => {
-      activity.stop("Marketplace loaded");
+    result = await installFromMarketplace(parsedArgs.source, parsedArgs.flags, async (plugins, kind) => {
+      activity.stop(kind === "plugin" ? "Plugin loaded" : "Marketplace loaded");
 
       let selected = plugins;
 
       if (parsedArgs.flags.pluginName) {
         const plugin = plugins.find((candidate) => candidate.plugin.name === parsedArgs.flags.pluginName);
         if (!plugin) {
-          throw new Error(`Plugin "${parsedArgs.flags.pluginName}" was not found in the selected marketplace scope.`);
+          throw new Error(`Plugin "${parsedArgs.flags.pluginName}" was not found in the selected scope.`);
         }
 
         selected = [plugin];
-      } else if (!parsedArgs.flags.installAll && plugins.length > 1) {
+      } else if (kind === "marketplace" && !parsedArgs.flags.installAll && plugins.length > 1) {
         if (!process.stdin.isTTY || !process.stdout.isTTY) {
           throw new Error("Interactive plugin selection requires a TTY. Use --plugin or --all instead.");
         }
@@ -233,11 +234,10 @@ Usage:
   copilot-ship list [-g]
 
 Sources:
-  owner/repo
-  https://github.com/owner/repo
-  https://github.com/owner/repo/tree/main/plugins/my-plugin
-  git@github.com:owner/repo.git
-  ./local-path
+  owner/repo                                         marketplace
+  https://github.com/owner/repo                      marketplace
+  https://github.com/owner/repo/tree/main/my-plugin  single plugin
+  git@github.com:owner/repo.git                      marketplace
 `);
 }
 

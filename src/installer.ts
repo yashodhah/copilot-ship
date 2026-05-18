@@ -8,7 +8,8 @@ import {
   COPILOT_INSTRUCTIONS_FILE,
   DIRECTORY_TARGETS,
   GLOBAL_INSTALL_ROOT,
-  MARKETPLACE_MANIFEST,
+  MARKETPLACE_MANIFEST_CANDIDATES,
+  PLUGIN_JSON_CANDIDATES,
   PROJECT_INSTALL_ROOT,
   type ArtifactKind,
   type DirectoryArtifactKind,
@@ -17,6 +18,7 @@ import {
 const execFileAsync = promisify(execFile);
 
 export type InstallScope = "project" | "global";
+export type SourceKind = "marketplace" | "plugin";
 
 export interface CliFlags {
   pluginName?: string;
@@ -37,8 +39,8 @@ interface MarketplaceManifest {
 }
 
 interface ResolvedSource {
-  marketplaceRoot: string;
-  requestedPath: string;
+  kind: SourceKind;
+  root: string;
   cleanup: (() => Promise<void>) | undefined;
 }
 
@@ -77,19 +79,10 @@ export interface ListedArtifacts {
 }
 
 export async function resolveSource(source: string): Promise<ResolvedSource> {
-  const localPath = await tryResolveLocalPath(source);
-  if (localPath) {
-    return {
-      cleanup: undefined,
-      marketplaceRoot: await findMarketplaceRoot(localPath),
-      requestedPath: localPath,
-    };
-  }
-
   const parsedGitHubSource = parseGitHubSource(source);
   if (!parsedGitHubSource) {
     throw new Error(
-      `Unsupported source "${source}". Use a local path, owner/repo shorthand, a GitHub URL, or a git@github.com URL.`,
+      `Unsupported source "${source}". Use owner/repo shorthand or a GitHub URL.`,
     );
   }
 
@@ -110,36 +103,51 @@ export async function resolveSource(source: string): Promise<ResolvedSource> {
     throw wrapExecError(`Failed to clone ${parsedGitHubSource.cloneUrl}`, error);
   }
 
-  const requestedPath = path.resolve(checkoutRoot, parsedGitHubSource.subpath ?? ".");
+  const cleanup = async () => rm(tempRoot, { force: true, recursive: true });
 
-  try {
-    await access(requestedPath);
-  } catch {
-    await rm(tempRoot, { force: true, recursive: true });
-    throw new Error(
-      `Resolved source path "${parsedGitHubSource.subpath ?? "."}" does not exist in ${parsedGitHubSource.cloneUrl}.`,
-    );
+  if (parsedGitHubSource.subpath) {
+    const pluginRoot = path.resolve(checkoutRoot, parsedGitHubSource.subpath);
+
+    try {
+      await access(pluginRoot);
+    } catch {
+      await cleanup();
+      throw new Error(
+        `Path "${parsedGitHubSource.subpath}" does not exist in ${parsedGitHubSource.cloneUrl}.`,
+      );
+    }
+
+    const pluginJsonPath = await findPluginJsonAtRoot(pluginRoot);
+    if (!pluginJsonPath) {
+      await cleanup();
+      throw new Error(
+        `No plugin.json found at "${parsedGitHubSource.subpath}" in ${parsedGitHubSource.cloneUrl}. ` +
+          `Expected one of: ${PLUGIN_JSON_CANDIDATES.join(", ")}.`,
+      );
+    }
+
+    return { kind: "plugin", root: pluginRoot, cleanup };
   }
 
-  return {
-    cleanup: async () => rm(tempRoot, { force: true, recursive: true }),
-    marketplaceRoot: await findMarketplaceRoot(requestedPath),
-    requestedPath,
-  };
+  return { kind: "marketplace", root: checkoutRoot, cleanup };
 }
 
 export async function installFromMarketplace(
   source: string,
   flags: CliFlags,
-  selectPlugins: (plugins: PluginCandidate[]) => Promise<PluginCandidate[]>,
+  selectPlugins: (plugins: PluginCandidate[], kind: SourceKind) => Promise<PluginCandidate[]>,
 ): Promise<AddCommandResult> {
   const resolvedSource = await resolveSource(source);
 
   try {
-    const manifest = await readMarketplaceManifest(resolvedSource.marketplaceRoot);
+    const manifest =
+      resolvedSource.kind === "marketplace"
+        ? await readMarketplaceManifest(resolvedSource.root)
+        : await readPluginJson(resolvedSource.root);
+
     const warnings: string[] = [];
     const skippedPlugins: string[] = [];
-    const localCandidates: PluginCandidate[] = [];
+    const candidates: PluginCandidate[] = [];
 
     for (const plugin of manifest.plugins) {
       if (typeof plugin.source !== "string") {
@@ -148,19 +156,21 @@ export async function installFromMarketplace(
         continue;
       }
 
-      const pluginRoot = path.resolve(resolvedSource.marketplaceRoot, plugin.source);
-      await assertDirectory(pluginRoot, `Plugin "${plugin.name}" points to missing directory "${plugin.source}".`);
-      localCandidates.push({ plugin, pluginRoot });
+      const pluginRoot = path.resolve(resolvedSource.root, plugin.source);
+      const children = await readdirOrNull(pluginRoot);
+      if (children === null) {
+        skippedPlugins.push(plugin.name);
+        warnings.push(`Skipped plugin "${plugin.name}": points to missing directory "${plugin.source}".`);
+        continue;
+      }
+      candidates.push({ plugin, pluginRoot });
     }
 
-    const scopedCandidates = narrowCandidatesByRequestedPath(localCandidates, resolvedSource.requestedPath);
-    const candidatePool = scopedCandidates.length > 0 ? scopedCandidates : localCandidates;
-
-    if (candidatePool.length === 0) {
-      throw new Error("No installable plugins were found in the marketplace.");
+    if (candidates.length === 0) {
+      throw new Error("No installable plugins were found.");
     }
 
-    const selectedCandidates = await selectPlugins(candidatePool);
+    const selectedCandidates = await selectPlugins(candidates, resolvedSource.kind);
     if (selectedCandidates.length === 0) {
       throw new Error("No plugins were selected.");
     }
@@ -193,7 +203,7 @@ export async function installFromMarketplace(
     return {
       installedPlugins: installablePlans,
       skippedPlugins,
-      sourceRoot: resolvedSource.marketplaceRoot,
+      sourceRoot: resolvedSource.root,
       targetRoot,
       warnings,
     };
@@ -234,61 +244,81 @@ function getInstallRoot(scope: InstallScope): string {
 }
 
 async function readMarketplaceManifest(marketplaceRoot: string): Promise<MarketplaceManifest> {
-  const manifestPath = path.join(marketplaceRoot, MARKETPLACE_MANIFEST);
-  let raw: string;
+  for (const candidate of MARKETPLACE_MANIFEST_CANDIDATES) {
+    const manifestPath = path.join(marketplaceRoot, candidate);
+    let raw: string;
 
+    try {
+      raw = await readFile(manifestPath, "utf8");
+    } catch {
+      continue;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+
+    if (!isMarketplaceManifest(parsed)) {
+      continue;
+    }
+
+    return parsed;
+  }
+
+  throw new Error(
+    `No marketplace manifest found. Expected one of: ${MARKETPLACE_MANIFEST_CANDIDATES.join(", ")} at the repository root.`,
+  );
+}
+
+async function findPluginJsonAtRoot(pluginRoot: string): Promise<string | null> {
+  for (const candidate of PLUGIN_JSON_CANDIDATES) {
+    const fullPath = path.join(pluginRoot, candidate);
+    if (await pathExists(fullPath)) {
+      return fullPath;
+    }
+  }
+
+  return null;
+}
+
+async function readPluginJson(pluginRoot: string): Promise<MarketplaceManifest> {
+  const pluginJsonPath = await findPluginJsonAtRoot(pluginRoot);
+  if (!pluginJsonPath) {
+    throw new Error(
+      `No plugin.json found at the specified path. Expected one of: ${PLUGIN_JSON_CANDIDATES.join(", ")}.`,
+    );
+  }
+
+  let raw: string;
   try {
-    raw = await readFile(manifestPath, "utf8");
+    raw = await readFile(pluginJsonPath, "utf8");
   } catch {
-    throw new Error(`MVP1 requires a marketplace manifest at "${manifestPath}".`);
+    throw new Error(`Failed to read plugin.json at "${pluginJsonPath}".`);
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch (error) {
-    throw wrapExecError(`Failed to parse marketplace manifest at "${manifestPath}"`, error);
+    throw wrapExecError(`Failed to parse plugin.json at "${pluginJsonPath}"`, error);
   }
 
-  if (!isMarketplaceManifest(parsed)) {
-    throw new Error(`Marketplace manifest at "${manifestPath}" is missing a valid "plugins" array.`);
+  if (typeof parsed !== "object" || parsed === null) {
+    throw new Error(`plugin.json at "${pluginJsonPath}" must be a JSON object.`);
   }
 
-  return parsed;
-}
+  const record = parsed as Record<string, unknown>;
+  const name = typeof record.name === "string" ? record.name : path.basename(pluginRoot);
+  const plugin: MarketplacePlugin = { name, source: "." };
 
-async function findMarketplaceRoot(startingPath: string): Promise<string> {
-  let currentPath = path.resolve(startingPath);
-  const stats = await readdirOrNull(currentPath);
-
-  if (stats === null) {
-    currentPath = path.dirname(currentPath);
+  if (typeof record.description === "string") {
+    plugin.description = record.description;
   }
 
-  while (true) {
-    const candidate = path.join(currentPath, MARKETPLACE_MANIFEST);
-    if (await pathExists(candidate)) {
-      return currentPath;
-    }
-
-    const parent = path.dirname(currentPath);
-    if (parent === currentPath) {
-      break;
-    }
-
-    currentPath = parent;
-  }
-
-  throw new Error(`MVP1 requires a marketplace manifest. None was found from "${startingPath}" upward.`);
-}
-
-function narrowCandidatesByRequestedPath(candidates: PluginCandidate[], requestedPath: string): PluginCandidate[] {
-  const resolvedRequestedPath = path.resolve(requestedPath);
-
-  return candidates.filter((candidate) => {
-    const pluginRoot = path.resolve(candidate.pluginRoot);
-    return isSamePath(pluginRoot, resolvedRequestedPath) || isDescendantOf(resolvedRequestedPath, pluginRoot);
-  });
+  return { plugins: [plugin] };
 }
 
 async function discoverArtifacts(pluginRoot: string, targetRoot: string): Promise<InstallEntry[]> {
@@ -413,24 +443,6 @@ async function readdirOrNull(targetPath: string): Promise<string[] | null> {
   }
 }
 
-async function tryResolveLocalPath(source: string): Promise<string | null> {
-  const expandedSource = source.startsWith("~/") ? path.join(os.homedir(), source.slice(2)) : source;
-  const shouldTreatAsPath =
-    expandedSource.startsWith(".") || expandedSource.startsWith("/") || expandedSource.startsWith("~");
-
-  if (!shouldTreatAsPath) {
-    const candidate = path.resolve(expandedSource);
-    if (!(await pathExists(candidate))) {
-      return null;
-    }
-
-    return candidate;
-  }
-
-  const resolved = path.resolve(expandedSource);
-  return (await pathExists(resolved)) ? resolved : null;
-}
-
 function parseGitHubSource(source: string):
   | {
       branch?: string;
@@ -510,15 +522,6 @@ function isMarketplacePlugin(value: unknown): value is MarketplacePlugin {
 
   const record = value as Record<string, unknown>;
   return typeof record.name === "string" && "source" in record;
-}
-
-function isSamePath(left: string, right: string): boolean {
-  return path.resolve(left) === path.resolve(right);
-}
-
-function isDescendantOf(child: string, parent: string): boolean {
-  const relative = path.relative(parent, child);
-  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
 async function createTempDirectory(): Promise<string> {
