@@ -2,6 +2,8 @@
 
 ## Releases
 
-Always release on the `beta` branch only. Never bump `package.json` version manually — `semantic-release` manages versioning automatically and will produce `x.x.x-beta.N` prerelease tags from the `beta` branch.
+Always release on the `main` branch. Never use the `beta` branch or any other branch for releases.
 
-Do not touch `package.json` version, do not push to `main`, and do not suggest a stable release unless explicitly instructed.
+Never bump `package.json` version manually — `semantic-release` manages versioning automatically.
+
+Push directly to `main`. Do not use PRs or feature branches unless explicitly instructed.

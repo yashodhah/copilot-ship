@@ -19,6 +19,10 @@ import {
   installFromMarketplace,
   listInstalledArtifacts,
 } from "./installer.js";
+import { createRequire } from "module";
+
+const require = createRequire(import.meta.url);
+const { version } = require("../package.json") as { version: string };
 
 interface ParsedArgs {
   command: "add" | "list" | "help";
@@ -227,7 +231,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 }
 
 function printUsage(): void {
-  console.log(`copilot-ship
+  console.log(`copilot-ship v${version}
 
 Usage:
   copilot-ship add <source> [--plugin <name> | --all] [-g] [-y]
