@@ -414,9 +414,12 @@ async function readdirOrNull(targetPath: string): Promise<string[] | null> {
 }
 
 async function tryResolveLocalPath(source: string): Promise<string | null> {
-  const expandedSource = source.startsWith("~/") ? path.join(os.homedir(), source.slice(2)) : source;
+  const expandedSource =
+    source.startsWith("~/") || source.startsWith("~\\")
+      ? path.join(os.homedir(), source.slice(2))
+      : source;
   const shouldTreatAsPath =
-    expandedSource.startsWith(".") || expandedSource.startsWith("/") || expandedSource.startsWith("~");
+    expandedSource.startsWith(".") || expandedSource.startsWith("~") || path.isAbsolute(expandedSource);
 
   if (!shouldTreatAsPath) {
     const candidate = path.resolve(expandedSource);
@@ -513,11 +516,18 @@ function isMarketplacePlugin(value: unknown): value is MarketplacePlugin {
 }
 
 function isSamePath(left: string, right: string): boolean {
-  return path.resolve(left) === path.resolve(right);
+  const resolvedLeft = path.resolve(left);
+  const resolvedRight = path.resolve(right);
+  if (process.platform === "win32") {
+    return resolvedLeft.toLowerCase() === resolvedRight.toLowerCase();
+  }
+  return resolvedLeft === resolvedRight;
 }
 
 function isDescendantOf(child: string, parent: string): boolean {
-  const relative = path.relative(parent, child);
+  const resolvedParent = process.platform === "win32" ? path.resolve(parent).toLowerCase() : path.resolve(parent);
+  const resolvedChild = process.platform === "win32" ? path.resolve(child).toLowerCase() : path.resolve(child);
+  const relative = path.relative(resolvedParent, resolvedChild);
   return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
