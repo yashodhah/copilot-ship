@@ -1,6 +1,6 @@
 {
   "name": "copilot-ship",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "description": "Ship GitHub Copilot plugin artifacts into canonical Copilot directories.",
   "type": "module",
   "bin": {
