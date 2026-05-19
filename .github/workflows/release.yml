@@ -24,6 +24,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          registry-url: 'https://registry.npmjs.org'
 
       - name: Install dependencies
         run: npm ci
@@ -38,3 +39,13 @@ jobs:
         run: npx semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish to npm
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          PUBLISHED=$(npm view copilot-ship@"$VERSION" version 2>/dev/null || true)
+          if [ -z "$PUBLISHED" ]; then
+            npm publish --provenance
+          else
+            echo "Version $VERSION already published, skipping"
+          fi
